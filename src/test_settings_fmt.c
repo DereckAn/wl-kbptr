@@ -267,8 +267,68 @@ static void test_patch_respects_sections() {
     free(got);
 }
 
+// Regression: the overlay could drive `label_font_size` min above max, which
+// `parse_relative_font_size` rejects — the saved config then refused to load
+// and wl-kbptr would not start at all. Whatever the clamp produces must parse.
+static void test_rel_font_size_never_writes_unloadable() {
+    struct config config;
+    config_set_default(&config);
+
+    struct config_field_ref fields[MAX_FIELDS];
+    const int num = config_editable_fields(&config, fields, MAX_FIELDS);
+
+    struct config_field_ref *field =
+        find_field(fields, num, "mode_tile", "label_font_size");
+    assert(field != NULL);
+
+    struct relative_font_size *rfs = field->value;
+
+    // Raising the minimum past the maximum: the minimum gives way.
+    *rfs =
+        (struct relative_font_size){.min = 150, .proportion = .5, .max = 100};
+    settings_overlay_clamp_rel_font_size(rfs, 0);
+    assert(rfs->min <= rfs->max);
+    assert(rfs->max == 100);
+
+    // Lowering the maximum past the minimum: the maximum gives way.
+    *rfs = (struct relative_font_size){.min = 80, .proportion = .5, .max = 10};
+    settings_overlay_clamp_rel_font_size(rfs, 2);
+    assert(rfs->max >= rfs->min);
+    assert(rfs->min == 80);
+
+    // The formatted result must be something the parser accepts, otherwise the
+    // next start dies on "Failed to read configuration file".
+    for (int component = 0; component <= 2; component++) {
+        *rfs = (struct relative_font_size){
+            .min        = 200,
+            .proportion = .5,
+            .max        = 12
+        };
+        settings_overlay_clamp_rel_font_size(rfs, component);
+
+        char formatted[64];
+        config_format_field(field, formatted, sizeof(formatted));
+
+        struct config_loader loader;
+        config_loader_init(&loader, &config);
+        assert(config_loader_enter_section(&loader, "mode_tile") == 0);
+
+        if (config_loader_load_field(&loader, "label_font_size", formatted) !=
+            0) {
+            fprintf(
+                stderr, "clamped value '%s' (component %d) does not parse\n",
+                formatted, component
+            );
+            exit(1);
+        }
+    }
+
+    config_free_values(&config);
+}
+
 int main() {
     test_round_trip();
+    test_rel_font_size_never_writes_unloadable();
     test_editable_selection();
     test_patch_preserves_file();
     test_patch_appends_missing();

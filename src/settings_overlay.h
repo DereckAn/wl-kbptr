@@ -43,6 +43,17 @@ int settings_overlay_save(struct state *state);
 void settings_overlay_free(struct state *state);
 
 /**
+ * `settings_overlay_clamp_rel_font_size` enforces the ordering that
+ * `parse_relative_font_size` requires, so an edited value can always be
+ * written back and re-read. `component` is the part that was just changed (0
+ * minimum, 1 proportion, 2 maximum); the other end gives way. Exposed for
+ * testing.
+ */
+void settings_overlay_clamp_rel_font_size(
+    struct relative_font_size *rfs, int component
+);
+
+/**
  * `settings_overlay_patch_config` copies `in` to `out`, replacing the values of
  * the fields listed in `changes` and appending the ones it did not find. `in`
  * may be NULL when there is no existing configuration file. Exposed for

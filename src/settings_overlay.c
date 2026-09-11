@@ -195,6 +195,21 @@ static void adjust_double(double *value, double step) {
     }
 }
 
+void settings_overlay_clamp_rel_font_size(
+    struct relative_font_size *rfs, int component
+) {
+    // `parse_relative_font_size` refuses a minimum above the maximum, so a
+    // value that crossed over would be written out and then rejected on the
+    // next start. Give way on whichever end was not just moved.
+    if (rfs->min > rfs->max) {
+        if (component == 0) {
+            rfs->min = rfs->max;
+        } else {
+            rfs->max = rfs->min;
+        }
+    }
+}
+
 static void adjust_field(struct settings_overlay *ov, int step) {
     struct config_field_ref *field = &ov->fields[ov->selected];
     union field_value        value = field_read(field);
@@ -232,6 +247,9 @@ static void adjust_field(struct settings_overlay *ov, int step) {
             adjust_double(&value.rel_font_size.max, step);
             break;
         }
+        settings_overlay_clamp_rel_font_size(
+            &value.rel_font_size, ov->component
+        );
         break;
 
     default:
@@ -462,6 +480,15 @@ int settings_overlay_save(struct state *state) {
     if (config_resolve_path(state->config_filename, path, sizeof(path)) != 0) {
         snprintf(ov->status, sizeof(ov->status), "No config path to save to.");
         return 1;
+    }
+
+    // Write through a symlinked config instead of over it: `rename` replaces
+    // the link itself, which would silently detach a config that is stowed
+    // from a dotfiles repository. `realpath` fails when the file does not
+    // exist yet, in which case the unresolved path is already correct.
+    char resolved[PATH_MAX];
+    if (realpath(path, resolved) != NULL) {
+        snprintf(path, sizeof(path), "%s", resolved);
     }
 
     char *slash = strrchr(path, '/');
