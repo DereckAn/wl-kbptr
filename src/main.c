@@ -14,7 +14,12 @@
 #include "xdg-output-unstable-v1-client-protocol.h"
 
 #include <cairo/cairo.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -24,6 +29,93 @@
 #include <wayland-util.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 #include <xkbcommon/xkbcommon.h>
+
+static int single_instance_fd = -1;
+
+// Concurrent instances are unusable: the second overlay draws on top of the
+// first and the compositor gives keyboard focus to only one of them. On
+// Hyprland that is the newer surface, which strands the older instance on
+// screen -- it never receives the Escape that would make it exit and has to
+// be killed from a terminal. Take over instead: terminate the instance
+// holding the lock and wait for the kernel to drop it, which happens only
+// once that process has exited and its surface is gone.
+// `wait_for_single_instance_lock` retries the lock for a bounded time, so a
+// holder that never exits cannot block us here forever.
+#define LOCK_WAIT_INTERVAL_US 10000
+#define LOCK_WAIT_ATTEMPTS    200
+
+static int wait_for_single_instance_lock(struct flock *lock) {
+    for (int i = 0; i < LOCK_WAIT_ATTEMPTS; i++) {
+        usleep(LOCK_WAIT_INTERVAL_US);
+
+        if (fcntl(single_instance_fd, F_SETLK, lock) == 0) {
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
+static int take_over_single_instance_lock(void) {
+    const char *runtime_dir = getenv("XDG_RUNTIME_DIR");
+    char        path[PATH_MAX];
+    snprintf(
+        path, sizeof(path), "%s/wl-kbptr.lock",
+        runtime_dir != NULL ? runtime_dir : "/tmp"
+    );
+
+    single_instance_fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (single_instance_fd < 0) {
+        // Not being able to lock is not worth refusing to start over.
+        LOG_WARN("Could not open lock file '%s': %s", path, strerror(errno));
+        return 0;
+    }
+
+    struct flock lock = {
+        .l_type   = F_WRLCK,
+        .l_whence = SEEK_SET,
+        .l_start  = 0,
+        .l_len    = 0,
+    };
+
+    if (fcntl(single_instance_fd, F_SETLK, &lock) == 0) {
+        return 0;
+    }
+
+    // F_GETLK reports the owning pid, so nothing is written to the lock file
+    // that could go stale. The pid could in principle be recycled between the
+    // call and the signal, but that window is a few instructions wide.
+    struct flock holder = lock;
+    if (fcntl(single_instance_fd, F_GETLK, &holder) == 0 &&
+        holder.l_type != F_UNLCK && holder.l_pid > 0) {
+        LOG_DEBUG("Replacing running instance %ld.", (long)holder.l_pid);
+        kill(holder.l_pid, SIGTERM);
+    }
+
+    if (wait_for_single_instance_lock(&lock) == 0) {
+        return 0;
+    }
+
+    // Whoever holds it is not going to exit on its own: it may be stopped, or
+    // stuck where `move_pointer` blocks SIGTERM to finish a click. That window
+    // is milliseconds, so anything still holding on is wedged rather than
+    // mid-click and killing it will not strand a held mouse button. Waiting
+    // with F_SETLKW instead would block here forever, leaving the key press
+    // that started us doing nothing at all.
+    holder = lock;
+    if (fcntl(single_instance_fd, F_GETLK, &holder) == 0 &&
+        holder.l_type != F_UNLCK && holder.l_pid > 0) {
+        LOG_WARN("Instance %ld did not exit; killing it.", (long)holder.l_pid);
+        kill(holder.l_pid, SIGKILL);
+
+        if (wait_for_single_instance_lock(&lock) == 0) {
+            return 0;
+        }
+    }
+
+    LOG_ERR("Another instance is holding '%s' and did not exit.", path);
+    return -1;
+}
 
 static void send_frame(struct state *state) {
     int32_t scale_120 = state->fractional_scale;
@@ -791,6 +883,10 @@ int main(int argc, char **argv) {
     wl_list_init(&state.outputs);
     wl_list_init(&state.seats);
 
+    if (take_over_single_instance_lock() != 0) {
+        return 1;
+    }
+
     state.wl_display = wl_display_connect(NULL);
     if (state.wl_display == NULL) {
         LOG_ERR("Failed to connect to Wayland compositor.");
@@ -962,6 +1058,12 @@ int main(int argc, char **argv) {
 
     config_free_values(&state.config);
     free_mode_states(&state);
+
+    // Never unlink the lock file: another instance may already hold a lock on
+    // the inode. Closing the fd releases ours.
+    if (single_instance_fd >= 0) {
+        close(single_instance_fd);
+    }
 
 #if DEBUG
     cairo_debug_reset_static_data();
