@@ -5,6 +5,7 @@
 #include "state.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 
+#include <signal.h>
 #include <wayland-client.h>
 
 static void _apply_transform(
@@ -96,6 +97,13 @@ void move_pointer(
     if (state->click != CLICK_NONE) {
         int btn = 271 + click;
 
+        // Dying between the press and the release would leave the button held
+        // down for good, so let a replacing instance's SIGTERM wait.
+        sigset_t blocked_signals, prev_signals;
+        sigemptyset(&blocked_signals);
+        sigaddset(&blocked_signals, SIGTERM);
+        sigprocmask(SIG_BLOCK, &blocked_signals, &prev_signals);
+
         zwlr_virtual_pointer_v1_button(
             virt_pointer, 0, btn, WL_POINTER_BUTTON_STATE_PRESSED
         );
@@ -107,6 +115,8 @@ void move_pointer(
         );
         zwlr_virtual_pointer_v1_frame(virt_pointer);
         wl_display_roundtrip(state->wl_display);
+
+        sigprocmask(SIG_SETMASK, &prev_signals, NULL);
     }
 
     zwlr_virtual_pointer_v1_destroy(virt_pointer);
