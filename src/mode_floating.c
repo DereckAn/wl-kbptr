@@ -10,6 +10,7 @@
 #include "utils_cairo.h"
 
 #include <cairo.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,7 +110,9 @@ void *floating_mode_enter(struct state *state, struct rect area) {
 
     ms->label_font_face = cairo_toy_font_face_create(
         state->config.mode_floating.label_font_family, CAIRO_FONT_SLANT_NORMAL,
-        CAIRO_FONT_WEIGHT_NORMAL
+        state->config.mode_floating.label_style == FLOATING_LABEL_STYLE_CHIP
+            ? CAIRO_FONT_WEIGHT_BOLD
+            : CAIRO_FONT_WEIGHT_NORMAL
     );
 
     return ms;
@@ -150,11 +153,147 @@ static bool floating_mode_key(
     return false;
 }
 
+static void rounded_rect_path(
+    cairo_t *cairo, double x, double y, double w, double h, double r
+) {
+    r = fmin(r, fmin(w, h) / 2);
+    if (r <= 0) {
+        cairo_rectangle(cairo, x, y, w, h);
+        return;
+    }
+    cairo_new_sub_path(cairo);
+    cairo_arc(cairo, x + w - r, y + r, r, -M_PI / 2, 0);
+    cairo_arc(cairo, x + w - r, y + h - r, r, 0, M_PI / 2);
+    cairo_arc(cairo, x + r, y + h - r, r, M_PI / 2, M_PI);
+    cairo_arc(cairo, x + r, y + r, r, M_PI, 3 * M_PI / 2);
+    cairo_close_path(cairo);
+}
+
+struct chip_box {
+    double x, y, w, h;
+};
+
+static bool chip_overlaps(struct chip_box c, struct chip_box *placed, int n) {
+    for (int i = 0; i < n; i++) {
+        struct chip_box p = placed[i];
+        if (c.x < p.x + p.w && p.x < c.x + c.w && c.y < p.y + p.h &&
+            p.y < c.y + c.h) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Where a region's chip goes: its left edge, vertically centered, unless that
+// would cover a chip already drawn; then its right edge, just above it, or
+// just below it, whichever is free first.
+static struct chip_box
+place_chip(struct rect a, double w, double h, struct chip_box *placed, int n) {
+    const double    cy           = a.y + (a.h - h) / 2;
+    struct chip_box candidates[] = {
+        {a.x, cy, w, h},
+        {a.x + a.w - w, cy, w, h},
+        {a.x, a.y - h, w, h},
+        {a.x, a.y + a.h, w, h},
+    };
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(*candidates); i++) {
+        if (!chip_overlaps(candidates[i], placed, n)) {
+            return candidates[i];
+        }
+    }
+    return candidates[0];
+}
+
+// `label_style=chip`: a small rounded label at the left edge of each region,
+// vertically centered on it, moved aside when it would cover another chip.
+// Chips that no longer match the typed keys are drawn with `chip_dim_color`
+// (or hidden when it is fully transparent).
+static void render_chips(
+    struct floating_mode_state *ms, struct mode_floating_config *config,
+    cairo_t *cairo
+) {
+    label_selection_t *curr_label =
+        label_selection_new(ms->label_symbols, ms->num_areas);
+    label_selection_set_from_idx(curr_label, 0);
+
+    int  label_str_max_len = label_selection_str_max_len(curr_label) + 1;
+    char label_selected_str[label_str_max_len];
+    char label_unselected_str[label_str_max_len];
+
+    cairo_set_operator(cairo, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_u32(cairo, config->unselectable_bg_color);
+    cairo_paint(cairo);
+
+    cairo_set_font_face(cairo, ms->label_font_face);
+    cairo_set_font_size(cairo, config->chip_font_size);
+    cairo_font_extents_t fe;
+    cairo_font_extents(cairo, &fe);
+    const double     pad        = config->chip_padding;
+    const double     chip_h     = fe.ascent + fe.descent + 2 * pad;
+    const bool       show_dim   = (config->chip_dim_color & 0xff) != 0;
+    struct chip_box *placed     = malloc(sizeof(*placed) * (ms->num_areas + 1));
+    int              num_placed = 0;
+
+    cairo_set_operator(cairo, CAIRO_OPERATOR_OVER);
+    for (int i = 0; i < ms->num_areas; i++, label_selection_incr(curr_label)) {
+        const bool selectable =
+            label_selection_is_included(curr_label, ms->label_selection);
+        if (!selectable && !show_dim) {
+            continue;
+        }
+
+        struct rect a = ms->areas[i];
+        label_selection_str(curr_label, label_selected_str);
+        cairo_text_extents_t te_all;
+        cairo_text_extents(cairo, label_selected_str, &te_all);
+        const double    chip_w = fmax(te_all.x_advance + 2 * pad, chip_h);
+        struct chip_box box = place_chip(a, chip_w, chip_h, placed, num_placed);
+        placed[num_placed++] = box;
+        const double x = box.x, y = box.y;
+
+        rounded_rect_path(cairo, x, y, chip_w, chip_h, config->chip_radius);
+        cairo_set_source_u32(cairo, config->chip_bg_color);
+        if (selectable) {
+            cairo_fill_preserve(cairo);
+            cairo_set_source_u32(cairo, config->chip_border_color);
+            cairo_set_line_width(cairo, 1);
+            cairo_stroke(cairo);
+        } else {
+            cairo_fill(cairo);
+        }
+
+        cairo_move_to(
+            cairo, x + (chip_w - te_all.x_advance) / 2, y + pad + fe.ascent
+        );
+        if (selectable) {
+            label_selection_str_split(
+                curr_label, label_selected_str, label_unselected_str,
+                ms->label_selection->next
+            );
+            cairo_set_source_u32(cairo, config->label_select_color);
+            cairo_show_text(cairo, label_selected_str);
+            cairo_set_source_u32(cairo, config->label_color);
+            cairo_show_text(cairo, label_unselected_str);
+        } else {
+            cairo_set_source_u32(cairo, config->chip_dim_color);
+            cairo_show_text(cairo, label_selected_str);
+        }
+    }
+
+    free(placed);
+    label_selection_free(curr_label);
+}
+
 void floating_mode_render(
     struct state *state, void *mode_state, cairo_t *cairo
 ) {
     struct floating_mode_state  *ms     = mode_state;
     struct mode_floating_config *config = &state->config.mode_floating;
+
+    if (config->label_style == FLOATING_LABEL_STYLE_CHIP) {
+        render_chips(ms, config, cairo);
+        return;
+    }
 
     label_selection_t *curr_label =
         label_selection_new(ms->label_symbols, ms->num_areas);

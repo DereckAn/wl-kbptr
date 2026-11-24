@@ -78,6 +78,30 @@ label_font_size=12 50% 100
 # Characters to use in labels
 label_symbols=abcdefghijklmnopqrstuvwxyz
 
+# How labels are drawn. Possible values:
+# * `box` -- highlight each whole region, label centered in it
+# * `chip` -- a small rounded label at the left edge of each region
+label_style=box
+
+# Chip background color (label_style=chip)
+chip_bg_color=#1e1e2eee
+
+# Chip border color (label_style=chip)
+chip_border_color=#ffa500ff
+
+# Label color for chips that no longer match the typed keys;
+# fully transparent hides them (label_style=chip)
+chip_dim_color=#66666688
+
+# Chip font size (label_style=chip)
+chip_font_size=13
+
+# Space between a chip's label and its edge (label_style=chip)
+chip_padding=3
+
+# Chip corner radius; 0 keeps them square (label_style=chip)
+chip_radius=4
+
 
 ## Configuration for bisect mode ##
 [mode_bisect]
