@@ -102,6 +102,9 @@ chip_padding=3
 # Chip corner radius; 0 keeps them square (label_style=chip)
 chip_radius=4
 
+# Show labels in capital letters; keys are still typed lowercase
+label_uppercase=false
+
 
 ## Configuration for bisect mode ##
 [mode_bisect]

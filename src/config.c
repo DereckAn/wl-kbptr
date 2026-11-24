@@ -258,6 +258,23 @@ static int parse_str(void *dest, char *value) {
     return 0;
 }
 
+static int parse_bool(void *dest, char *value) {
+    bool *out = dest;
+    if (strcmp(value, "true") == 0 || strcmp(value, "yes") == 0 ||
+        strcmp(value, "on") == 0 || strcmp(value, "1") == 0) {
+        *out = true;
+    } else if (
+        strcmp(value, "false") == 0 || strcmp(value, "no") == 0 ||
+        strcmp(value, "off") == 0 || strcmp(value, "0") == 0
+    ) {
+        *out = false;
+    } else {
+        LOG_ERR("Invalid boolean '%s'. Should be 'true' or 'false'.", value);
+        return 1;
+    }
+    return 0;
+}
+
 static int parse_floating_label_style_value(void *dest, char *value) {
     enum floating_label_style *out = dest;
     if (strcmp(value, "box") == 0) {
@@ -522,6 +539,10 @@ static struct section_def section_defs[] = {
         MF_FIELD(
             chip_radius, "4", parse_double, noop,
             "Chip corner radius; 0 keeps them square (label_style=chip)"
+        ),
+        MF_FIELD(
+            label_uppercase, "false", parse_bool, noop,
+            "Show labels in capital letters; keys are still typed lowercase"
         )
     ),
     SECTION(
@@ -665,6 +686,10 @@ static enum config_field_kind field_def_kind(struct field_def *field_def) {
         return CONFIG_FIELD_REL_FONT_SIZE;
     }
 
+    if (field_def->parse == parse_bool) {
+        return CONFIG_FIELD_BOOL;
+    }
+
     return CONFIG_FIELD_OTHER;
 }
 
@@ -718,6 +743,11 @@ int config_format_field(
         return snprintf(
             out, out_len, "%g %g%% %g", rfs->min, rfs->proportion * 100.,
             rfs->max
+        );
+
+    case CONFIG_FIELD_BOOL:
+        return snprintf(
+            out, out_len, "%s", *(bool *)field->value ? "true" : "false"
         );
 
     default:

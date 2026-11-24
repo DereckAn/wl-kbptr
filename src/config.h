@@ -5,6 +5,7 @@
 
 #include "utils.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -58,6 +59,7 @@ struct mode_floating_config {
     double                    chip_font_size;
     double                    chip_padding;
     double                    chip_radius;
+    bool                      label_uppercase;
 };
 
 struct mode_bisect_config {
@@ -136,6 +138,7 @@ enum config_field_kind {
     CONFIG_FIELD_COLOR,
     CONFIG_FIELD_DOUBLE,
     CONFIG_FIELD_REL_FONT_SIZE,
+    CONFIG_FIELD_BOOL,
 };
 
 /**

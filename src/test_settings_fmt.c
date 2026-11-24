@@ -4,6 +4,7 @@
 #include "settings_overlay.h"
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,6 +61,8 @@ static void test_round_trip() {
          sizeof(struct relative_font_size)},
         {"mode_floating", "label_font_size", "12 50% 100", "12 50% 100",
          sizeof(struct relative_font_size)},
+        {"mode_floating", "label_uppercase", "yes", "true", sizeof(bool)},
+        {"mode_floating", "label_uppercase", "off", "false", sizeof(bool)},
     };
 
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -109,6 +112,9 @@ static void test_editable_selection() {
     assert(find_field(fields, num, "mode_tile", "label_color") != NULL);
     assert(find_field(fields, num, "mode_tile", "label_font_size") != NULL);
     assert(find_field(fields, num, "mode_split", "pointer_size") != NULL);
+    struct config_field_ref *upper =
+        find_field(fields, num, "mode_floating", "label_uppercase");
+    assert(upper != NULL && upper->kind == CONFIG_FIELD_BOOL);
 
     assert(find_field(fields, num, "mode_tile", "label_symbols") == NULL);
     assert(find_field(fields, num, "mode_tile", "label_font_family") == NULL);

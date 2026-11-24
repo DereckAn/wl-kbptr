@@ -10,6 +10,7 @@
 #include "utils_cairo.h"
 
 #include <cairo.h>
+#include <ctype.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -153,6 +154,17 @@ static bool floating_mode_key(
     return false;
 }
 
+// `label_uppercase`: labels are drawn in capitals; matching still uses the
+// configured (lowercase) symbols, so keys are typed as before.
+static void label_display_case(char *s, bool uppercase) {
+    if (!uppercase) {
+        return;
+    }
+    for (; *s; s++) {
+        *s = toupper((unsigned char)*s);
+    }
+}
+
 static void rounded_rect_path(
     cairo_t *cairo, double x, double y, double w, double h, double r
 ) {
@@ -244,6 +256,7 @@ static void render_chips(
 
         struct rect a = ms->areas[i];
         label_selection_str(curr_label, label_selected_str);
+        label_display_case(label_selected_str, config->label_uppercase);
         cairo_text_extents_t te_all;
         cairo_text_extents(cairo, label_selected_str, &te_all);
         const double    chip_w = fmax(te_all.x_advance + 2 * pad, chip_h);
@@ -270,6 +283,8 @@ static void render_chips(
                 curr_label, label_selected_str, label_unselected_str,
                 ms->label_selection->next
             );
+            label_display_case(label_selected_str, config->label_uppercase);
+            label_display_case(label_unselected_str, config->label_uppercase);
             cairo_set_source_u32(cairo, config->label_select_color);
             cairo_show_text(cairo, label_selected_str);
             cairo_set_source_u32(cairo, config->label_color);
@@ -348,12 +363,15 @@ void floating_mode_render(
             );
             cairo_text_extents_t te_all;
             label_selection_str(curr_label, label_selected_str);
+            label_display_case(label_selected_str, config->label_uppercase);
             cairo_text_extents(cairo, label_selected_str, &te_all);
 
             label_selection_str_split(
                 curr_label, label_selected_str, label_unselected_str,
                 ms->label_selection->next
             );
+            label_display_case(label_selected_str, config->label_uppercase);
+            label_display_case(label_unselected_str, config->label_uppercase);
 
             cairo_text_extents_t te_selected, te_unselected;
             cairo_text_extents(cairo, label_selected_str, &te_selected);

@@ -46,6 +46,7 @@ union field_value {
     uint32_t                  color;
     double                    number;
     struct relative_font_size rel_font_size;
+    bool                      boolean;
 };
 
 struct settings_overlay {
@@ -89,6 +90,9 @@ static union field_value field_read(const struct config_field_ref *field) {
     case CONFIG_FIELD_REL_FONT_SIZE:
         value.rel_font_size = *(struct relative_font_size *)field->value;
         break;
+    case CONFIG_FIELD_BOOL:
+        value.boolean = *(bool *)field->value;
+        break;
     default:
         break;
     }
@@ -107,6 +111,9 @@ field_write(const struct config_field_ref *field, union field_value value) {
         break;
     case CONFIG_FIELD_REL_FONT_SIZE:
         *(struct relative_font_size *)field->value = value.rel_font_size;
+        break;
+    case CONFIG_FIELD_BOOL:
+        *(bool *)field->value = value.boolean;
         break;
     default:
         break;
@@ -250,6 +257,11 @@ static void adjust_field(struct settings_overlay *ov, int step) {
         settings_overlay_clamp_rel_font_size(
             &value.rel_font_size, ov->component
         );
+        break;
+
+    case CONFIG_FIELD_BOOL:
+        // Any step flips it, so left and right both toggle.
+        value.boolean = !value.boolean;
         break;
 
     default:
