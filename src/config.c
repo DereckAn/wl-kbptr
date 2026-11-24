@@ -258,6 +258,19 @@ static int parse_str(void *dest, char *value) {
     return 0;
 }
 
+static int parse_floating_label_style_value(void *dest, char *value) {
+    enum floating_label_style *out = dest;
+    if (strcmp(value, "box") == 0) {
+        *out = FLOATING_LABEL_STYLE_BOX;
+    } else if (strcmp(value, "chip") == 0) {
+        *out = FLOATING_LABEL_STYLE_CHIP;
+    } else {
+        LOG_ERR("Invalid label style '%s'. Should be 'box' or 'chip'.", value);
+        return 1;
+    }
+    return 0;
+}
+
 static int parse_floating_mode_source_value(void *dest, char *value) {
     enum floating_mode_source *out = dest;
     if (strcmp(value, "stdin") == 0) {
@@ -291,6 +304,26 @@ static int parse_click(void *dest, char *value) {
         LOG_ERR(
             "Invalid click button '%s'. Should be 'left', 'right', 'middle' or "
             "'none'.",
+            value
+        );
+        return 1;
+    }
+
+    return 0;
+}
+
+static int parse_drag_marker_shape(void *dest, char *value) {
+    enum drag_marker_shape *out = dest;
+    if (strcmp(value, "circle") == 0) {
+        *out = DRAG_MARKER_CIRCLE;
+    } else if (strcmp(value, "caret") == 0) {
+        *out = DRAG_MARKER_CARET;
+    } else if (strcmp(value, "rectangle") == 0) {
+        *out = DRAG_MARKER_RECTANGLE;
+    } else {
+        LOG_ERR(
+            "Invalid drag marker shape '%s'. Should be 'circle', 'caret' or "
+            "'rectangle'.",
             value
         );
         return 1;
@@ -355,6 +388,8 @@ struct section_def {
     FIELD(struct mode_split_config, name, default_value, parse, free, desc)
 #define MC_FIELD(name, default_value, parse, free, desc) \
     FIELD(struct mode_click_config, name, default_value, parse, free, desc)
+#define MD_FIELD(name, default_value, parse, free, desc) \
+    FIELD(struct mode_drag_config, name, default_value, parse, free, desc)
 
 static void noop() {}
 
@@ -456,6 +491,37 @@ static struct section_def section_defs[] = {
         MF_FIELD(
             label_symbols, "abcdefghijklmnopqrstuvwxyz", parse_str, free_str,
             "Characters to use in labels"
+        ),
+        MF_FIELD(
+            label_style, "box", parse_floating_label_style_value, noop,
+            "How labels are drawn. Possible values:\n"
+            "* `box` -- highlight each whole region, label centered in it\n"
+            "* `chip` -- a small rounded label at the left edge of each region"
+        ),
+        MF_FIELD(
+            chip_bg_color, "#1e1e2eee", parse_color, noop,
+            "Chip background color (label_style=chip)"
+        ),
+        MF_FIELD(
+            chip_border_color, "#ffa500ff", parse_color, noop,
+            "Chip border color (label_style=chip)"
+        ),
+        MF_FIELD(
+            chip_dim_color, "#66666688", parse_color, noop,
+            "Label color for chips that no longer match the typed keys;\n"
+            "fully transparent hides them (label_style=chip)"
+        ),
+        MF_FIELD(
+            chip_font_size, "13", parse_double, noop,
+            "Chip font size (label_style=chip)"
+        ),
+        MF_FIELD(
+            chip_padding, "3", parse_double, noop,
+            "Space between a chip's label and its edge (label_style=chip)"
+        ),
+        MF_FIELD(
+            chip_radius, "4", parse_double, noop,
+            "Chip corner radius; 0 keeps them square (label_style=chip)"
         )
     ),
     SECTION(
@@ -536,6 +602,17 @@ static struct section_def section_defs[] = {
     SECTION(
         mode_click, "Configuration for click mode",
         MC_FIELD(button, "left", parse_click, noop, "Mouse button to trigger")
+    ),
+    SECTION(
+        mode_drag, "Configuration for drag option",
+        MD_FIELD(
+            start_marker_color, "#f50d", parse_color, noop, "Marker color"
+        ),
+        MD_FIELD(start_marker_size, "8", parse_double, noop, "Marker size"),
+        MD_FIELD(
+            start_marker_shape, "caret", parse_drag_marker_shape, noop,
+            "Marker shape"
+        )
     ),
 };
 #pragma GCC diagnostic pop

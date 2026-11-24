@@ -121,7 +121,9 @@ static void test_editable_selection() {
             num_colors++;
         }
     }
-    assert(num_colors == 24);
+    // Every color option is editable: 24, plus mode_drag.start_marker_color and
+    // the three mode_floating chip colors.
+    assert(num_colors == 28);
 
     config_free_values(&config);
 }

@@ -143,6 +143,10 @@ struct state {
     bool                           settings_enabled;
     bool                           settings_open;
     struct settings_overlay       *settings;
+    bool                           drag;
+    int32_t                        drag_start_x;
+    int32_t                        drag_start_y;
+    int                            drag_phase;
 };
 
 #endif
